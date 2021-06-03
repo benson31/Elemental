@@ -14,15 +14,14 @@ namespace El {
 namespace copy {
 
 // FIXME (trb 03/06/18) -- Need to do the GPU impl
-template<typename T, Device D>
-void Scatter
-(const DistMatrix<T,CIRC,CIRC,ELEMENT,D>& A,
-        ElementalMatrix<T>& B)
+template <typename T, Device D>
+void Scatter(const DistMatrix<T, CIRC, CIRC, ELEMENT, D>& A,
+             ElementalMatrix<T>& B)
 {
     EL_DEBUG_CSE
     AssertSameGrids(A, B);
     if (B.GetLocalDevice() != D)
-      RuntimeError("Device mismatch.");
+        RuntimeError("Device mismatch.");
     const Int m = A.Height();
     const Int n = A.Width();
     B.Resize(m, n);
@@ -44,9 +43,10 @@ void Scatter
 
     const Int colStride = B.ColStride();
     const Int rowStride = B.RowStride();
-    const Int pkgSize = mpi::Pad(MaxLength(m,colStride)*MaxLength(n,rowStride));
+    const Int pkgSize =
+        mpi::Pad(MaxLength(m, colStride) * MaxLength(n, rowStride));
     const Int recvSize = pkgSize;
-    const Int sendSize = B.DistSize()*pkgSize;
+    const Int sendSize = B.DistSize() * pkgSize;
 
     // Translate the root of A into the DistComm of B (if possible)
     const Int root = A.Root();
@@ -55,30 +55,39 @@ void Scatter
         return;
 
     auto syncHelper = MakeMultiSync(
-        SyncInfoFromMatrix(static_cast<Matrix<T, D> const &>(B.LockedMatrix())),
+        SyncInfoFromMatrix(static_cast<Matrix<T, D> const&>(B.LockedMatrix())),
         SyncInfoFromMatrix(A.LockedMatrix()));
     SyncInfo<D> const& sync_info = syncHelper;
 
-    simple_buffer<T,D> buffer(0, sync_info);
-    T* recvBuf=0; // some compilers (falsely) warn otherwise
+    simple_buffer<T, D> buffer(0, sync_info);
+    T* recvBuf = 0; // some compilers (falsely) warn otherwise
     if (A.CrossRank() == root)
     {
-        buffer.allocate(sendSize+recvSize);
+        buffer.allocate(sendSize + recvSize);
         T* sendBuf = buffer.data();
         recvBuf = buffer.data() + sendSize;
 
         // Pack the send buffer
-        copy::util::StridedPack(
-            m, n,
-            B.ColAlign(), colStride,
-            B.RowAlign(), rowStride,
-            A.LockedBuffer(), A.LDim(),
-            sendBuf,          pkgSize, sync_info);
+        copy::util::StridedPack(m,
+                                n,
+                                B.ColAlign(),
+                                colStride,
+                                B.RowAlign(),
+                                rowStride,
+                                A.LockedBuffer(),
+                                A.LDim(),
+                                sendBuf,
+                                pkgSize,
+                                sync_info);
 
         // Scatter from the root
-        mpi::Scatter(
-            sendBuf, pkgSize, recvBuf, pkgSize, target, B.DistComm(),
-            sync_info);
+        mpi::Scatter(sendBuf,
+                     pkgSize,
+                     recvBuf,
+                     pkgSize,
+                     target,
+                     B.DistComm(),
+                     sync_info);
     }
     else
     {
@@ -86,23 +95,29 @@ void Scatter
         recvBuf = buffer.data();
 
         // Perform the receiving portion of the scatter from the non-root
-        mpi::Scatter(
-            static_cast<T*>(0), pkgSize,
-            recvBuf,            pkgSize, target, B.DistComm(),
-            sync_info);
+        mpi::Scatter(static_cast<T*>(0),
+                     pkgSize,
+                     recvBuf,
+                     pkgSize,
+                     target,
+                     B.DistComm(),
+                     sync_info);
     }
 
     // Unpack
-    copy::util::InterleaveMatrix(
-        B.LocalHeight(), B.LocalWidth(),
-        recvBuf,    1, B.LocalHeight(),
-        B.Buffer(), 1, B.LDim(), sync_info);
+    copy::util::InterleaveMatrix(B.LocalHeight(),
+                                 B.LocalWidth(),
+                                 recvBuf,
+                                 1,
+                                 B.LocalHeight(),
+                                 B.Buffer(),
+                                 1,
+                                 B.LDim(),
+                                 sync_info);
 }
 
-template<typename T>
-void Scatter
-(const DistMatrix<T,CIRC,CIRC,BLOCK>& A,
-        BlockMatrix<T>& B)
+template <typename T>
+void Scatter(const DistMatrix<T, CIRC, CIRC, BLOCK>& A, BlockMatrix<T>& B)
 {
     EL_DEBUG_CSE
     AssertSameGrids(A, B);
@@ -110,10 +125,9 @@ void Scatter
     GeneralPurpose(A, B);
 }
 
-template<typename T,Device D>
-void Scatter
-(DistMatrix<T,CIRC,CIRC,ELEMENT,D> const& A,
-  DistMatrix<T,STAR,STAR,ELEMENT,D>& B)
+template <typename T, Device D>
+void Scatter(DistMatrix<T, CIRC, CIRC, ELEMENT, D> const& A,
+             DistMatrix<T, STAR, STAR, ELEMENT, D>& B)
 {
     EL_DEBUG_CSE
     AssertSameGrids(A, B);
@@ -126,10 +140,9 @@ void Scatter
     }
 }
 
-template<typename T>
-void Scatter
-(const DistMatrix<T,CIRC,CIRC,BLOCK>& A,
-        DistMatrix<T,STAR,STAR,BLOCK>& B)
+template <typename T>
+void Scatter(const DistMatrix<T, CIRC, CIRC, BLOCK>& A,
+             DistMatrix<T, STAR, STAR, BLOCK>& B)
 {
     EL_DEBUG_CSE
     AssertSameGrids(A, B);
