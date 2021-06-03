@@ -9,6 +9,7 @@
 #ifndef EL_BLAS_COPY_SCATTER_HPP
 #define EL_BLAS_COPY_SCATTER_HPP
 
+#include "core/environment/decl.hpp"
 namespace El {
 namespace copy {
 
@@ -20,11 +21,10 @@ void Scatter
 {
     EL_DEBUG_CSE
     AssertSameGrids(A, B);
-
+    if (B.GetLocalDevice() != D)
+      RuntimeError("Device mismatch.");
     const Int m = A.Height();
     const Int n = A.Width();
-    const Int colStride = B.ColStride();
-    const Int rowStride = B.RowStride();
     B.Resize(m, n);
 
     if (B.CrossSize() != 1 || B.RedundantSize() != 1)
@@ -36,6 +36,14 @@ void Scatter
         return;
     }
 
+    if (B.DistSize() == 1)
+    {
+        Copy(A.LockedMatrix(), B.Matrix());
+        return;
+    }
+
+    const Int colStride = B.ColStride();
+    const Int rowStride = B.RowStride();
     const Int pkgSize = mpi::Pad(MaxLength(m,colStride)*MaxLength(n,rowStride));
     const Int recvSize = pkgSize;
     const Int sendSize = B.DistSize()*pkgSize;
@@ -46,18 +54,12 @@ void Scatter
     if (target == mpi::UNDEFINED)
         return;
 
-    SyncInfo<D> syncInfoA = SyncInfoFromMatrix(A.LockedMatrix()),
-        syncInfoB = SyncInfoFromMatrix(static_cast<Matrix<T,D> const&>(B.LockedMatrix()));
+    auto syncHelper = MakeMultiSync(
+        SyncInfoFromMatrix(static_cast<Matrix<T, D> const &>(B.LockedMatrix())),
+        SyncInfoFromMatrix(A.LockedMatrix()));
+    SyncInfo<D> const& sync_info = syncHelper;
 
-    auto syncHelper = MakeMultiSync(syncInfoB, syncInfoA);
-
-    if (B.DistSize() == 1)
-    {
-        Copy(A.LockedMatrix(), B.Matrix());
-        return;
-    }
-
-    simple_buffer<T,D> buffer(0, syncInfoB);
+    simple_buffer<T,D> buffer(0, sync_info);
     T* recvBuf=0; // some compilers (falsely) warn otherwise
     if (A.CrossRank() == root)
     {
@@ -71,12 +73,12 @@ void Scatter
             B.ColAlign(), colStride,
             B.RowAlign(), rowStride,
             A.LockedBuffer(), A.LDim(),
-            sendBuf,          pkgSize, syncInfoB);
+            sendBuf,          pkgSize, sync_info);
 
         // Scatter from the root
         mpi::Scatter(
             sendBuf, pkgSize, recvBuf, pkgSize, target, B.DistComm(),
-            syncInfoB);
+            sync_info);
     }
     else
     {
@@ -87,14 +89,14 @@ void Scatter
         mpi::Scatter(
             static_cast<T*>(0), pkgSize,
             recvBuf,            pkgSize, target, B.DistComm(),
-            syncInfoB);
+            sync_info);
     }
 
     // Unpack
     copy::util::InterleaveMatrix(
         B.LocalHeight(), B.LocalWidth(),
         recvBuf,    1, B.LocalHeight(),
-        B.Buffer(), 1, B.LDim(), syncInfoB);
+        B.Buffer(), 1, B.LDim(), sync_info);
 }
 
 template<typename T>
